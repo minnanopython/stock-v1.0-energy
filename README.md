@@ -1,1 +1,1 @@
-# energy-sock-analysis
+# Stock Analysis Energy
