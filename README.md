@@ -1,1 +1,1 @@
-# Stock Analysis Energy
+# エネルギー株分析
