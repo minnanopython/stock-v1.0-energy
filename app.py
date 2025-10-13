@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # --- 定数 ---
 
 SECTORS = {
-    "11資源": {
+    "メイン企業": {
         "5020.T": "5020 ＥＮＥＯＳホールディングス", "5019.T": "5019 出光興産",
         "5021.T": "5021 コスモエネルギーホールディングス", "1605.T": "1605 ＩＮＰＥＸ",
         "1662.T": "1662 石油資源開発", "8031.T": "8031 三井物産",
@@ -49,7 +49,7 @@ SECTORS = {
 
 ALL_SECTOR_TICKERS = list(set([t for d in SECTORS.values() for t in d.keys()]))
 ALL_TICKERS_WITH_N225 = ALL_SECTOR_TICKERS + ['^N225']
-DEFAULT_SECTOR_KEY = "11資源"
+DEFAULT_SECTOR_KEY = "メイン企業"
 NUM_COLS = 6
 
 # --- ユーティリティ関数 ---
@@ -81,7 +81,7 @@ def reset_tickers_on_sector_change():
 # --- Streamlit設定 ---
 
 st.set_page_config(
-    page_title="Energy Analysis v1",
+    page_title="stock-v1.0-energy",
     page_icon=":chart_with_upwards_trend:",
     layout="wide",
 )
