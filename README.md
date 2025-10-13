@@ -1,3 +1,3 @@
 # エネルギー株分析
 
-https://stock-energy-v1.streamlit.app/
+https://stock-v10-energy.streamlit.app/
