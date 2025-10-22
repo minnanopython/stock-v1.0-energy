@@ -323,7 +323,7 @@ col_select_sector, col_select_stock = st.columns([1, 4])
 with col_select_sector:
     st.markdown("セクター")
     sector_options = list(SECTORS.keys())
-    default_sector_key = "メイン銘柄"
+    default_sector_key = "エネルギー資源"
     # Session Stateに値があればそれを、なければデフォルトキーを選択
     default_sectors = st.session_state.get("multiselect_sectors", [default_sector_key]) 
     selected_sectors = st.multiselect(
