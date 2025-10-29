@@ -17,13 +17,15 @@ st.markdown("---")
 # --------------------------------------------------------------------------------------
 # 銘柄に関する設定 (Daily Gainの対象銘柄)
 # --------------------------------------------------------------------------------------
-DEFAULT_SECTOR = "電設工事"
+DEFAULT_SECTOR = "ＥＮＥＯＳ"
 SECTORS = {
+    "ＥＮＥＯＳ": {
+        '5020.T': 'ＥＮＥＯＳホールディングス',
+    },
     "エネルギー資源": {
         '1605.T': 'ＩＮＰＥＸ',
         '1515.T': '日鉄鉱業',
         '1662.T': '石油資源開発',
-        '5020.T': 'ＥＮＥＯＳホールディングス',
         '5019.T': '出光興産',
         '5021.T': 'コスモエネルギーホールディングス',
         '1514.T': '住石ホールディングス',
@@ -60,6 +62,12 @@ SECTORS = {
         '1721.T': 'コムシスホールディングス',
         '1951.T': 'エクシオグループ',
     },
+    "ＤＸ銘柄": {
+        '4483.T': 'ＪＭＤＣ',
+        '6027.T': '弁護士ドットコム',
+        '3774.T': 'インターネットイニシアティブ',
+        '4419.T': 'Ｆｉｎａｔｅｘｔホールディングス',
+    },
 }
 ALL_STOCKS_MAP = {ticker: name for sector in SECTORS.values() for ticker, name in sector.items()}
 ALL_TICKERS_WITH_N225 = list(set(list(ALL_STOCKS_MAP.keys()) + ['^N225']))
@@ -73,40 +81,7 @@ def get_stock_name(ticker_code):
 if "autoscale_enabled" not in st.session_state:
     st.session_state["autoscale_enabled"] = True
 # --------------------------------------------------------------------------------------
-# データ取得ヘルパー関数
-# --------------------------------------------------------------------------------------
-def _fetch_data(tickers_list, start_date, end_date, interval):
-    if not tickers_list:
-        return pd.DataFrame()
-    unique_tickers = list(set(tickers_list))
-    try:
-        data = yf.download(
-            tickers=unique_tickers,
-            start=start_date,
-            end=end_date,
-            interval=interval,
-            auto_adjust=True,
-            progress=False
-        )
-        if 'Close' in data.columns.get_level_values(0):
-            data_close = data["Close"]
-        elif 'Close' in data.columns:
-            data_close = data['Close'].to_frame(name=unique_tickers[0])
-        else:
-            return pd.DataFrame(index=pd.to_datetime([]), columns=unique_tickers)
-    except yf.exceptions.YFRateLimitError as e:
-        raise e
-    except Exception as e:
-        st.error(f"yfinanceデータ取得エラー ({interval}): {e}")
-        return pd.DataFrame()
-    data_close = data_close.sort_index()
-    data_close_filled = data_close.ffill()
-    if isinstance(data_close_filled.columns, pd.MultiIndex):
-        if 'Close' in data_close_filled.columns.get_level_values(0):
-            data_close_filled.columns = data_close_filled.columns.get_level_values(1)
-    return data_close_filled.dropna(axis=0, how='all')
-# --------------------------------------------------------------------------------------
-# データ取得とキャッシュを行う関数
+# データ取得、キャッシュ、騰落率の計算を行う関数
 # --------------------------------------------------------------------------------------
 MAX_YF_PERIOD = "5y"
 MAX_YF_INTERVAL = "1wk"
@@ -118,7 +93,6 @@ def load_daily_data_cached(tickers_list, yf_period_str):
     unique_tickers = list(set(tickers_list))
     try:
         tickers_obj = yf.Tickers(unique_tickers)
-        # High, Low, Open, Close, Volumeを含むOHLCVデータを取得
         data = tickers_obj.history(period="5y", interval="1d", auto_adjust=True)
         if len(unique_tickers) == 1 and 'Close' in data.columns:
             data.columns.name = 'Variable'
@@ -193,10 +167,10 @@ def load_ticker_financials_cached(ticker_list):
                 "配当": None, 
             }
     return financials
-# --------------------------------------------------------------------------------------
-# 騰落率を計算する関数
-# --------------------------------------------------------------------------------------
 def calculate_gains(daily_data: pd.DataFrame, days: int) -> pd.Series:
+    """
+    騰落率を計算する関数
+    """
     if daily_data.empty:
         return pd.Series(dtype=float)
     if isinstance(daily_data.columns, pd.MultiIndex):
@@ -213,22 +187,9 @@ def calculate_gains(daily_data: pd.DataFrame, days: int) -> pd.Series:
         return pd.Series(0, index=daily_price_data.columns)     
     gains = ((latest_prices - previous_prices) / previous_prices) * 100
     return gains.dropna()
-def calculate_monthly_gain(daily_data: pd.DataFrame) -> pd.Series:
-    if daily_data.empty:
-        return pd.Series(dtype=float)
-    if isinstance(daily_data.columns, pd.MultiIndex):
-        daily_price_data = daily_data['Close']
-    else:
-        daily_price_data = daily_data
-    start_prices = daily_price_data.iloc[0].ffill()
-    latest_prices = daily_price_data.iloc[-1].ffill()
-    gains = ((latest_prices - start_prices) / start_prices) * 100
-    return gains.dropna()
 def calculate_period_gain(daily_data: pd.DataFrame, start_date_str: str, end_date_str: str) -> pd.Series:
     """
-    指定された開始日と終了日の間の騰落率を計算する。
-    開始日と終了日は 'YYYY-MM-DD' 形式の文字列。
-    指定日にデータがない場合は直前の営業日を採用。
+    指定された開始日と終了日の間の騰落率を計算する関数
     """
     if daily_data.empty:
         return pd.Series(dtype=float)
@@ -261,10 +222,7 @@ def calculate_daily_returns_df(daily_price_data: pd.DataFrame) -> pd.DataFrame:
     else:
         df_price = daily_price_data
     df_returns = df_price.pct_change() * 100
-    return df_returns.dropna(how='all').iloc[-180:]
-# --------------------------------------------------------------------------------------
-# セクター選択変更時のコールバック関数
-# --------------------------------------------------------------------------------------
+    return df_returns.dropna(how='all').iloc[-360:]
 def reset_stock_selection():
     st.session_state["_stock_selection_needs_reset"] = True
 # --------------------------------------------------------------------------------------
@@ -291,7 +249,6 @@ if selected_sectors:
 else:
     SELECTED_SECTOR_STOCKS_MAP = ALL_STOCKS_MAP
 stock_options = [name for name in SELECTED_SECTOR_STOCKS_MAP.values()]
-
 all_current_stock_names = stock_options
 if "multiselect_stocks" not in st.session_state:
     st.session_state["multiselect_stocks"] = all_current_stock_names
@@ -318,7 +275,7 @@ for name in selected_stock_names:
 SELECTED_STOCKS_MAP = FINAL_STOCKS_MAP
 selected_plot_tickers = list(SELECTED_STOCKS_MAP.keys())
 # --------------------------------------------------------------------------------------
-# データロードとキャッシュを実行、日次データ５年分、週次データ５年分
+# データロード、キャッシュ、騰落率を計算、日次データ５年分、週次データ５年分
 # --------------------------------------------------------------------------------------
 data_raw_5y = pd.DataFrame()
 try:
@@ -333,7 +290,7 @@ except yf.exceptions.YFRateLimitError:
 except Exception as e:
     st.error(f"データ読み込みエラー: {e}")
     st.stop()
-daily_data_ohlcv = pd.DataFrame() # High, Low, Open, Close, Volume 全データ
+daily_data_ohlcv = pd.DataFrame()
 try:
     with st.spinner(f"日次データをロード中..."):
         daily_data_ohlcv = load_daily_data_cached(ALL_TICKERS_WITH_N225, "5y") 
@@ -344,15 +301,11 @@ except yf.exceptions.YFRateLimitError:
     load_daily_data_cached.clear()
 except Exception as e:
     st.error(f"日次データ読み込みエラー: {e}")
-
-# 騰落率計算用に終値のみを抽出
 if not daily_data_ohlcv.empty and isinstance(daily_data_ohlcv.columns, pd.MultiIndex):
     daily_data_for_table = daily_data_ohlcv['Close'].ffill()
 else:
-    daily_data_for_table = daily_data_ohlcv
-    
+    daily_data_for_table = daily_data_ohlcv    
 st.markdown(f"## 📋 Stock Gain")
-
 ALL_FINANCIALS = {}
 if SELECTED_SECTOR_STOCKS_MAP:
     try:
@@ -363,9 +316,6 @@ if SELECTED_SECTOR_STOCKS_MAP:
         load_ticker_financials_cached.clear()
     except Exception:
         pass
-# --------------------------------------------------------------------------------------
-# 騰落率の計算
-# --------------------------------------------------------------------------------------
 gain_1d = pd.Series(dtype=float)
 gain_5d = pd.Series(dtype=float)
 gain_1mo = pd.Series(dtype=float)
@@ -374,18 +324,15 @@ gain_6mo = pd.Series(dtype=float)
 gain_1y = pd.Series(dtype=float)
 gain_3y = pd.Series(dtype=float)
 gain_5y = pd.Series(dtype=float)
-
-# 仮の期間 (使用はしないがデータフレーム生成のために残す)
 PERIOD_1_START = "2025-10-03"
 PERIOD_1_END = "2025-10-06"
 PERIOD_2_START = "2025-10-17"
 PERIOD_2_END = "2025-10-20"
-
 daily_returns_df = calculate_daily_returns_df(daily_data_for_table)
 if not daily_data_for_table.empty:
     gain_1d = calculate_gains(daily_data_for_table, days=1)
     gain_5d = calculate_gains(daily_data_for_table, days=5)
-    gain_1mo = calculate_monthly_gain(daily_data_for_table.iloc[-20:])
+    gain_1mo = calculate_gains(daily_data_for_table, days=20)
     gain_3mo = calculate_gains(daily_data_for_table, days=60)
     gain_6mo = calculate_gains(daily_data_for_table, days=120)
     gain_1y = calculate_gains(daily_data_for_table, days=250)
@@ -400,10 +347,8 @@ else:
 # --------------------------------------------------------------------------------------
 FILTERED_STOCKS = SELECTED_STOCKS_MAP
 data_filtered_by_period = daily_data_for_table
-df_results = pd.DataFrame() # ダウンロード機能のために初期化
-ordered_display_df = pd.DataFrame() # テーブル配置修正のため初期化
-
-# 騰落率の色付け関数
+df_results = pd.DataFrame()
+ordered_display_df = pd.DataFrame()
 def color_gain(val):
     """騰落率に色を付ける関数"""
     if pd.isna(val):
@@ -414,7 +359,6 @@ def color_gain(val):
         return f'color: {color}'
     except ValueError:
         return ''
-        
 if not data_filtered_by_period.empty and FILTERED_STOCKS:
     end_prices = data_filtered_by_period.iloc[-1].ffill()
     results = []
@@ -439,7 +383,7 @@ if not data_filtered_by_period.empty and FILTERED_STOCKS:
         for key, gain_series in GAIN_KEYS.items():
             row[key] = gain_series.get(ticker)            
         row.update({
-            "10/6": gain_period1.get(ticker), # 期間騰落率のデータは残す
+            "10/6": gain_period1.get(ticker),
             "10/20": gain_period2.get(ticker),
         })         
         financial_data = ALL_FINANCIALS.get(ticker, {})
@@ -452,12 +396,10 @@ if not data_filtered_by_period.empty and FILTERED_STOCKS:
             "配当": financial_data.get("配当"),
         })         
         if current_price is not None:
-            results.append(row)             
-    
+            results.append(row) 
     if results:
         df_results = pd.DataFrame(results).sort_values("1d", ascending=False)
-        display_df = df_results.copy()         
-        
+        display_df = df_results.copy() 
         def format_financial(x, col):
             """財務データを表示用にフォーマットする関数"""
             if x is None or pd.isna(x) or (isinstance(x, (float, int)) and (x < 0 or x == 0 and col in ["予想PER", "PBR"])):
@@ -472,11 +414,9 @@ if not data_filtered_by_period.empty and FILTERED_STOCKS:
                 return f"{x:.2f}" if x is not None else "-"
             else:
                 return f"{x:.2f}"             
-        
         financial_cols_order = ["予想PER", "PBR", "EPS", "ROE", "ROA", "配当"]
         for col in financial_cols_order:
-            display_df[col] = display_df[col].apply(lambda x: format_financial(x, col))
-        
+            display_df[col] = display_df[col].apply(lambda x: format_financial(x, col))        
         gain_cols_period = list(GAIN_KEYS.keys())          
         final_cols = [
             "コード",
@@ -488,17 +428,14 @@ if not data_filtered_by_period.empty and FILTERED_STOCKS:
             "10/20",
             "予想PER", "PBR", "EPS", "ROE", "ROA",
         ]          
-        # 後で利用するため ordered_display_df に格納
-        ordered_display_df = display_df[[col for col in final_cols if col in display_df.columns]]          
-        
+        ordered_display_df = display_df[[col for col in final_cols if col in display_df.columns]] 
         gain_cols = gain_cols_period + ["10/6", "10/20"]
         num_rows = ordered_display_df.shape[0]
         ROW_HEIGHT = 35  
         HEADER_HEIGHT = 38 
         MAX_HEIGHT = 550 
         calculated_height = HEADER_HEIGHT + (num_rows * ROW_HEIGHT)
-        table_height = min(calculated_height, MAX_HEIGHT) 
-        
+        table_height = min(calculated_height, MAX_HEIGHT)         
         # -----------------------------------------------
         # メインテーブルの作成・表示 (上部に配置)
         # -----------------------------------------------
@@ -517,8 +454,7 @@ if not data_filtered_by_period.empty and FILTERED_STOCKS:
             format_dict_table1[col] = "{:.2f}"             
         styled_df_table1 = df_table1.style.applymap(color_gain, subset=gain_cols_table1).format(
             format_dict_table1
-        ).set_properties(**{'text-align': 'right'}, subset=["株価"] + gain_cols_table1)
-        
+        ).set_properties(**{'text-align': 'right'}, subset=["株価"] + gain_cols_table1)        
         column_config_table1 = {
             "コード": st.column_config.TextColumn(width="small"),
             "銘柄名": st.column_config.TextColumn(width="small"),
@@ -531,15 +467,13 @@ if not data_filtered_by_period.empty and FILTERED_STOCKS:
             "ROA": st.column_config.TextColumn(width="small"),
         }
         for col in gain_cols_table1:
-            column_config_table1[col] = st.column_config.TextColumn(width="small")
-        
+            column_config_table1[col] = st.column_config.TextColumn(width="small")        
         st.dataframe(
             data=styled_df_table1,
             height=table_height,
             column_config=column_config_table1,
             hide_index=True
-        )
-        
+        )        
     else:
         st.info("選択された銘柄のデータがありませんでした。")
 elif not selected_sectors:
@@ -549,8 +483,9 @@ elif daily_data_for_table.empty:
 else:
     st.info("表示可能な銘柄がありませんでした。")
 # --------------------------------------------------------------------------------------
-# 期間に応じて週次データからデータを抽出するヘルパー関数
+# 折れ線グラフの描画
 # --------------------------------------------------------------------------------------
+num_cols = 4
 def filter_data_by_period(data_raw_5y: pd.DataFrame, period_label: str) -> pd.DataFrame:
     if data_raw_5y.empty:
         return pd.DataFrame()
@@ -568,10 +503,6 @@ def filter_data_by_period(data_raw_5y: pd.DataFrame, period_label: str) -> pd.Da
     else:
         return pd.DataFrame() 
     return data_raw_5y[data_raw_5y.index >= start_date]
-# --------------------------------------------------------------------------------------
-# 折れ線グラフの描画
-# --------------------------------------------------------------------------------------
-num_cols = 4
 def create_and_display_charts(normalized_data, period_label, y_min_gain, y_max_gain, auto_scale=False):
     current_plot_tickers = [t for t in normalized_data.columns if t != '^N225']  
     if normalized_data.empty or current_plot_tickers == []:
@@ -821,7 +752,7 @@ def create_and_display_bar_charts(daily_returns_data, filtered_stocks, selected_
                 plot_df = daily_returns_data[[ticker]].reset_index()
                 plot_df.columns = ['Date', 'Daily_Return']
                 plot_df['Color'] = plot_df['Daily_Return'].apply(lambda x: 'Positive' if x >= 0 else 'Negative')
-                x_format = "%d"
+                x_format = "%m/%d"
                 chart = alt.Chart(plot_df).mark_bar().encode(
                     alt.X("Date:T", axis=alt.Axis(
                         title=None,
@@ -866,7 +797,7 @@ if not df_daily_returns.empty and FILTERED_STOCKS:
     plot_daily_returns_filtered = plot_daily_returns.drop(columns=['^N225'], errors='ignore')
     if not plot_daily_returns_filtered.empty:
         st.markdown("---")
-        st.markdown(f"## 📊 Daily Gain Chart 6mo")
+        st.markdown(f"## 📊 Daily Gain Chart")
         col_charts_daily, col_daily, col_controls_daily = st.columns([32, 0.1, 2.5])
         y_min_daily_calc = plot_daily_returns_filtered.min().min()
         y_max_daily_calc = plot_daily_returns_filtered.max().max()
@@ -941,20 +872,21 @@ elif daily_data_for_table.empty:
     pass 
 else:
     pass
-    
 # --------------------------------------------------------------------------------------
 # 過去6ヶ月の日ごとの騰落率テーブルの追加 (修正版: 高さ自動調整と固定列)
 # --------------------------------------------------------------------------------------
 if 'plot_daily_returns_filtered' in locals() and not plot_daily_returns_filtered.empty and FILTERED_STOCKS:
     st.markdown("---")
-    st.markdown("## 📅 過去6ヶ月 日ごと騰落率 (6mo Daily Gains)")
+    st.markdown("## 📅 Daily Gain")
     df_daily_gains_T = plot_daily_returns_filtered.T
     df_daily_gains_T['コード'] = df_daily_gains_T.index.str.replace(".T", "")
     df_daily_gains_T['銘柄名'] = df_daily_gains_T.index.map(get_stock_name)
-    cols = ['コード', '銘柄名'] + [col for col in df_daily_gains_T.columns if col not in ['コード', '銘柄名']]
+    all_date_cols = [col for col in df_daily_gains_T.columns if col not in ['コード', '銘柄名']]
+    reversed_date_cols = all_date_cols[::-1] 
+    cols = ['コード', '銘柄名'] + reversed_date_cols
     df_daily_gains_display = df_daily_gains_T[cols].copy()
     date_cols = df_daily_gains_display.columns[2:]
-    date_format = "%m/%d"
+    date_format = "%y/%m/%d"
     df_daily_gains_display.columns = ['コード', '銘柄名'] + [d.strftime(date_format) for d in date_cols]
     formatted_date_cols = df_daily_gains_display.columns[2:].tolist()
     format_dict = {col: "{:.2f}" for col in formatted_date_cols}
@@ -962,7 +894,7 @@ if 'plot_daily_returns_filtered' in locals() and not plot_daily_returns_filtered
         format_dict
     ).set_properties(**{'text-align': 'right'}, subset=formatted_date_cols)
     num_rows = df_daily_gains_display.shape[0]
-    ROW_HEIGHT = 35  
+    ROW_HEIGHT = 35 
     HEADER_HEIGHT = 38 
     MAX_HEIGHT = 550
     calculated_height = HEADER_HEIGHT + (num_rows * ROW_HEIGHT)
@@ -1079,7 +1011,7 @@ def create_and_display_candlestick_charts(ohlcv_data, filtered_stocks, period_la
 # --------------------------------------------------------------------------------------
 if not daily_data_ohlcv.empty and FILTERED_STOCKS:
     st.markdown("---")
-    st.markdown(f"## 📊 Daily Candlestick 6mo")
+    st.markdown(f"## 📊 Daily Candlestick")
     filtered_stocks_only = {k: v for k, v in FILTERED_STOCKS.items() if k != '^N225'}
     create_and_display_candlestick_charts(
         daily_data_ohlcv,
